@@ -36,9 +36,9 @@ def build_prompt(response: str, questions: List[str]) -> str:
         "- Moderately: *mentioned but misses important details*\n"
         "- Mostly: *mentioned but misses some details*\n"
         "- Completely: *mentioned with sufficient details*\n\n"
-        "Return only a JSON array with one object per question, in order:\n"
-        '[{"n": 1, "rating": "<one of the five ratings>", "reason": "<one or two sentences>", '
-        '"evidence": "<the shortest exact quote from the response that the rating rests on, or empty>"}]\n\n'
+        "Return only a JSON object with one entry per question, in order:\n"
+        '{"ratings": [{"n": 1, "rating": "<one of the five ratings>", "reason": "<one or two sentences>", '
+        '"evidence": "<the shortest exact quote from the response that the rating rests on, or empty>"}]}\n\n'
         f"Response: {response}\n\nQuestions:\n{numbered}\n\nJSON:"
     )
 
@@ -49,10 +49,13 @@ def explain_batch(judge, prompt: str, batch: List[str]) -> List[dict]:
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
     try:
-        rows = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ExplanationError(f"not JSON: {exc}") from exc
-    if len(rows) != len(batch) or any(row.get("rating") not in VALID_LABELS for row in rows):
+        rows = json.loads(text)["ratings"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.warning(f"Unparsable reply: {text[:2000]}")
+        raise ExplanationError(f"not the expected JSON: {exc}") from exc
+    if not isinstance(rows, list) or len(rows) != len(batch) or any(
+        not isinstance(row, dict) or row.get("rating") not in VALID_LABELS for row in rows
+    ):
         raise ExplanationError(f"expected {len(batch)} rows with valid ratings")
     return [
         {"rubric": rubric, "rating": row["rating"], "reason": row.get("reason", ""), "evidence": row.get("evidence", "")}
@@ -75,7 +78,7 @@ def main() -> None:
     items = load_researchqa_data(args.data)
     with open(args.responses, encoding="utf-8") as f:
         responses = json.load(f)
-    judge = make_judge(args.backend, args.model, args.aws_profile, args.aws_region)
+    judge = make_judge(args.backend, args.model, args.aws_profile, args.aws_region, json_output=True)
     results = {}
     for item in tqdm(items, desc="Explaining rubric labels"):
         if item.id not in responses:

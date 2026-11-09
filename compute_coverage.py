@@ -73,11 +73,15 @@ class Judge:
         return text
 
 
-def make_judge(backend: str, model: str, aws_profile: Optional[str], aws_region: str) -> Judge:
+def make_judge(
+    backend: str, model: str, aws_profile: Optional[str], aws_region: str, json_output: bool = False
+) -> Judge:
     """Build a judge that sends one prompt at temperature 0 and returns the reply text.
 
     Credentials come from the environment: ``OPENAI_API_KEY`` for ``openai``,
     ``OPENROUTER_API_KEY`` for ``openrouter``, and the AWS profile for ``bedrock``.
+    ``json_output`` asks OpenAI and OpenRouter for a reply that is one valid JSON object;
+    the grading prompt never sets it, so the official score is unaffected.
     """
     if backend in ("openai", "openrouter"):
         from openai import OpenAI
@@ -97,6 +101,7 @@ def make_judge(backend: str, model: str, aws_profile: Optional[str], aws_region:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 extra_body=extra_body,
+                **({"response_format": {"type": "json_object"}} if json_output else {}),
             )
             usage = response.usage
             cost = getattr(usage, "cost", None) if usage is not None else None
